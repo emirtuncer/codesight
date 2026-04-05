@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/emirtuncer/codesight/internal/discover"
 	gosync "github.com/emirtuncer/codesight/internal/sync"
 	"github.com/spf13/cobra"
 )
@@ -23,18 +24,41 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		projectName := filepath.Base(projectDir)
 		codesightDir := filepath.Join(projectDir, ".codesight")
 
-		fmt.Fprintf(os.Stderr, "Initializing .codesight for %s...\n", projectName)
-
-		result, err := gosync.Run(projectDir, codesightDir, projectName, true)
+		// Discover sub-projects via manifest detection.
+		projects, err := discover.Projects(projectDir)
 		if err != nil {
-			return fmt.Errorf("init: %w", err)
+			return fmt.Errorf("discover projects: %w", err)
 		}
 
-		fmt.Fprintf(os.Stderr, "Added %d symbols, %d errors\n",
-			len(result.Added), len(result.Errors))
+		fmt.Fprintf(os.Stderr, "Discovered %d project(s)\n", len(projects))
+
+		// Collect sub-project dirs so the root project can exclude them.
+		var subProjectDirs []string
+		for _, proj := range projects {
+			if !proj.IsRoot {
+				subProjectDirs = append(subProjectDirs, proj.Dir)
+			}
+		}
+
+		var totalAdded, totalErrors int
+		for _, proj := range projects {
+			fmt.Fprintf(os.Stderr, "  Initializing %s...\n", proj.Name)
+			var result *gosync.SyncResult
+			if proj.IsRoot {
+				result, err = gosync.Run(proj.Dir, codesightDir, proj.Name, true, subProjectDirs...)
+			} else {
+				result, err = gosync.Run(proj.Dir, codesightDir, proj.Name, true)
+			}
+			if err != nil {
+				return fmt.Errorf("init %s: %w", proj.Name, err)
+			}
+			totalAdded += len(result.Added)
+			totalErrors += len(result.Errors)
+		}
+
+		fmt.Fprintf(os.Stderr, "Added %d packages, %d errors\n", totalAdded, totalErrors)
 
 		// Add .codesight/ to .gitignore if not already there.
 		if err := ensureGitignore(projectDir); err != nil {
@@ -42,6 +66,7 @@ var initCmd = &cobra.Command{
 		}
 
 		// Create .claude/skills/codesight.md skill file.
+		projectName := filepath.Base(projectDir)
 		if err := writeSkillFile(projectDir, projectName); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not write skill file: %v\n", err)
 		}

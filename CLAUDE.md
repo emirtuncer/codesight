@@ -26,9 +26,9 @@ The `-count=1` flag disables test caching.
 
 ## Architecture
 
-### Pipeline: Scan → Parse → Generate
+### Pipeline: Discover → Scan → Parse → Generate
 
-The sync engine (`internal/sync/sync.go`) runs this pipeline on `init` and `sync`:
+On `init` and `sync`, manifest detection (`internal/discover/`) first walks the directory tree looking for project manifests (`go.mod`, `package.json`, `Cargo.toml`, etc.). Each outermost manifest defines a sub-project boundary. The sync engine then runs once per discovered project:
 
 1. **Scan** (`internal/scanner/`) — walks directory tree respecting nested `.gitignore` files, SHA256 hashes each file, detects language by extension. Skips testdata, vendor, node_modules, etc.
 2. **Parse** (`internal/parser/`) — tree-sitter parses files into ASTs. Embedded S-expression queries (`.scm` files in `queries/`) extract symbols. Language-specific walkers (`internal/parser/walkers/`) handle language-specific patterns (generics, decorators, trait impls).
@@ -60,6 +60,7 @@ Each package MD has two zones separated by `---`:
 
 | Package | Purpose |
 |---------|---------|
+| `internal/discover/` | Manifest detection for sub-project boundaries |
 | `internal/parser/` | Tree-sitter engine, query runner, language walkers |
 | `internal/scanner/` | File walking + gitignore + hashing |
 | `internal/markdown/` | Parse/write/update MD files with strict schemas |

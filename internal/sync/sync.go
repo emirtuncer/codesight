@@ -46,7 +46,8 @@ var parseableLanguages = map[string]bool{
 // codesightDir is the root of the .codesight vault.
 // projectName is the human-readable project label.
 // full forces re-processing of all files regardless of hash.
-func Run(projectDir, codesightDir, projectName string, full bool) (*SyncResult, error) {
+// excludeDirs are absolute paths to skip (used to exclude sub-project directories from root).
+func Run(projectDir, codesightDir, projectName string, full bool, excludeDirs ...string) (*SyncResult, error) {
 	result := &SyncResult{}
 
 	// 1. Create required directories.
@@ -72,13 +73,25 @@ func Run(projectDir, codesightDir, projectName string, full bool) (*SyncResult, 
 		return nil, fmt.Errorf("scan: %w", err)
 	}
 
-	// Filter: only parseable languages, skip ignored patterns from config.
+	// Build relative exclude prefixes from absolute excludeDirs.
+	var excludePrefixes []string
+	for _, excl := range excludeDirs {
+		rel, err := filepath.Rel(projectDir, excl)
+		if err == nil {
+			excludePrefixes = append(excludePrefixes, filepath.ToSlash(rel)+"/")
+		}
+	}
+
+	// Filter: only parseable languages, skip ignored patterns and excluded dirs.
 	var parseable []scanner.ScannedFile
 	for _, f := range scannedFiles {
 		if !parseableLanguages[f.Language] {
 			continue
 		}
 		if isIgnoredByConfig(f.Path, cfg.IgnorePatterns) {
+			continue
+		}
+		if isExcludedByDir(f.Path, excludePrefixes) {
 			continue
 		}
 		parseable = append(parseable, f)
@@ -403,6 +416,17 @@ func appendUnique(slice []string, s string) []string {
 		}
 	}
 	return append(slice, s)
+}
+
+// isExcludedByDir checks if a file path falls under any excluded directory prefix.
+func isExcludedByDir(filePath string, prefixes []string) bool {
+	slashPath := filepath.ToSlash(filePath)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(slashPath, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // isIgnoredByConfig checks if a file path matches any of the config ignore patterns.

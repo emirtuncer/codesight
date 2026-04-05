@@ -205,11 +205,12 @@ Claude Code can also read `.codesight/` MDs directly — the vault works as plai
 
 ## How It Works
 
-### Pipeline: Scan → Parse → Generate
+### Pipeline: Discover → Scan → Parse → Generate
 
-1. **Scan** (`internal/scanner/`) — walks directory tree respecting `.gitignore`, hashes files, detects language
-2. **Parse** (`internal/parser/`) — tree-sitter extracts symbols (functions, types, imports, calls) from 7 languages
-3. **Generate** (`internal/sync/`) — groups symbols by package, writes one MD per package with API surface, types, and dependencies
+1. **Discover** (`internal/discover/`) — walks directory tree looking for project manifests, creates sub-project boundaries
+2. **Scan** (`internal/scanner/`) — walks each project respecting `.gitignore`, hashes files, detects language
+3. **Parse** (`internal/parser/`) — tree-sitter extracts symbols (functions, types, imports, calls) from 7 languages
+4. **Generate** (`internal/sync/`) — groups symbols by package, writes one MD per package with API surface, types, and dependencies
 
 ### Incremental Sync
 
@@ -226,6 +227,33 @@ After code changes, `codesight sync`:
 - **Features** — requirements (with [x]/[ ] based on actual code), user stories, acceptance criteria
 
 Incremental: tracks `analysis_hash` per MD, skips unchanged items on re-run.
+
+### Monorepo Support
+
+codesight auto-detects sub-projects by looking for project manifest files during the initial directory walk. Each outermost manifest defines a sub-project that gets its own set of MDs under `.codesight/`.
+
+**Supported manifests:**
+- `go.mod` (Go)
+- `package.json` (Node/TypeScript/JavaScript)
+- `Cargo.toml` (Rust)
+- `*.csproj` / `*.sln` (C#)
+- `pyproject.toml` / `setup.py` (Python)
+- `pom.xml` / `build.gradle` / `build.gradle.kts` (Java/Kotlin)
+
+**Example:** a repo with `go.mod` at root and `sdk/go-client/go.mod` produces:
+
+```
+.codesight/
+  my-project/         # root project
+    packages/
+  go-client/          # auto-detected sub-project
+    packages/
+  _config.md
+```
+
+**Outermost-only rule:** if manifests are found at both `sdk/go/go.mod` and `sdk/go/auth/go.mod`, only the outer one (`sdk/go/`) becomes a project. The discover walk respects `.gitignore` files, so manifests in ignored directories (like `vendor/`) are skipped.
+
+Project names are extracted from manifests where possible (module name from `go.mod`, `name` field from `package.json`, etc.), falling back to the directory name.
 
 ## Supported Languages
 
